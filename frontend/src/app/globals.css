@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+:root {
+  --navy: #0b1f33;
+  --navy-hover: #16324d;
+  --navy-active: #1c3d5c;
+  --sidebar-text: #9db0c4;
+  --sidebar-text-active: #ffffff;
+  --accent: #1d6fd6;
+  --page: #f4f6f8;
+  --card: #ffffff;
+  --ink: #1a2330;
+  --muted: #5c6b7a;
+  --line: #e2e8ef;
+  --failed: #c53030;
+  --failed-bg: #fde8e8;
+  --paid: #2f855a;
+  --paid-bg: #e8f6ee;
+  --pending: #c05621;
+  --pending-bg: #fff1e6;
+  --open: #2b6cb0;
+  --open-bg: #e8f1fb;
+  --refunded: #2f855a;
+  --refunded-bg: #e8f6ee;
+}
+
+@theme inline {
+  --color-navy: var(--navy);
+  --color-navy-hover: var(--navy-hover);
+  --color-navy-active: var(--navy-active);
+  --color-sidebar-text: var(--sidebar-text);
+  --color-sidebar-text-active: var(--sidebar-text-active);
+  --color-accent: var(--accent);
+  --color-page: var(--page);
+  --color-card: var(--card);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-failed: var(--failed);
+  --color-failed-bg: var(--failed-bg);
+  --color-paid: var(--paid);
+  --color-paid-bg: var(--paid-bg);
+  --color-pending: var(--pending);
+  --color-pending-bg: var(--pending-bg);
+  --color-open: var(--open);
+  --color-open-bg: var(--open-bg);
+  --color-refunded: var(--refunded);
+  --color-refunded-bg: var(--refunded-bg);
+  --font-sans: var(--font-ibm-sans);
+  --font-mono: var(--font-ibm-mono);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-ibm-sans), "IBM Plex Sans", sans-serif;
+}
+
+::selection {
+  background: #1d6fd6;
+  color: #ffffff;
+}

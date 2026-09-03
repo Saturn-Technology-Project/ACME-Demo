@@ -1,0 +1,67 @@
+name: acme
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: acme
+      POSTGRES_PASSWORD: acme
+      POSTGRES_DB: acme
+    volumes:
+      - acme_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U acme -d acme"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://acme:acme@postgres:5432/acme
+      PORT: 4000
+    ports:
+      - "0.0.0.0:4000:4000"
+    networks:
+      - default
+      - acme-public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4000/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        ACME_API_URL: http://backend:4000
+    restart: unless-stopped
+    environment:
+      ACME_API_URL: http://backend:4000
+    ports:
+      - "3002:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  acme_pg:
+
+networks:
+  acme-public:
+    name: acme-public

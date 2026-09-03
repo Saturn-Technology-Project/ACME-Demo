@@ -1,0 +1,75 @@
+CREATE TABLE IF NOT EXISTS customers (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id TEXT PRIMARY KEY,
+  customer_id TEXT NOT NULL REFERENCES customers(id),
+  plan TEXT NOT NULL,
+  status TEXT NOT NULL,
+  mrr INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS invoices (
+  id TEXT PRIMARY KEY,
+  customer_id TEXT NOT NULL REFERENCES customers(id),
+  amount INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS payments (
+  id TEXT PRIMARY KEY,
+  invoice_id TEXT NOT NULL REFERENCES invoices(id),
+  customer_id TEXT NOT NULL REFERENCES customers(id),
+  amount INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tickets (
+  id TEXT PRIMARY KEY,
+  customer_id TEXT NOT NULL REFERENCES customers(id),
+  subject TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS emails (
+  id TEXT PRIMARY KEY,
+  customer_id TEXT REFERENCES customers(id),
+  recipient TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  body TEXT NOT NULL,
+  sent_by TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS activity (
+  id TEXT PRIMARY KEY,
+  at TIMESTAMPTZ NOT NULL,
+  event TEXT NOT NULL,
+  customer_id TEXT REFERENCES customers(id)
+);
+
+CREATE TABLE IF NOT EXISTS saturn_enrollments (
+  runtime_id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  token TEXT NOT NULL,
+  cloud_ws TEXT NOT NULL DEFAULT '',
+  runtime_connected BOOLEAN NOT NULL DEFAULT FALSE,
+  enrolled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE SEQUENCE IF NOT EXISTS customer_seq START WITH 7;
+CREATE SEQUENCE IF NOT EXISTS subscription_seq START WITH 7;
+CREATE SEQUENCE IF NOT EXISTS invoice_seq START WITH 10232;
+CREATE SEQUENCE IF NOT EXISTS payment_seq START WITH 92832;
+CREATE SEQUENCE IF NOT EXISTS ticket_seq START WITH 1004;
+CREATE SEQUENCE IF NOT EXISTS email_seq START WITH 1002;
+CREATE SEQUENCE IF NOT EXISTS activity_seq START WITH 1007;

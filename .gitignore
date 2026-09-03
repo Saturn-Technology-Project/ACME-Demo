@@ -1,0 +1,83 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# backend
+backend/node_modules
+backend/dist
+backend/.env
+backend/.DS_Store
+
+# mcp
+MCP/node_modules
+MCP/dist
+MCP/.env
+MCP/.DS_Store
+
+# agent runtime
+Agent Runtime/node_modules
+Agent Runtime/dist
+Agent Runtime/.env
+Agent Runtime/.DS_Store
+Agent Runtime/data
+
+# mcp gateway
+Gateway/.venv
+Gateway/__pycache__
+Gateway/**/__pycache__
+Gateway/.pytest_cache
+Gateway/*.egg-info
+Gateway/.env
+Gateway/.DS_Store
+
+# frontend
+frontend/node_modules
+frontend/.next
+frontend/out
+frontend/build
+frontend/.DS_Store
+
+# database
+database/data
+database/.DS_Store
+
+# Business Logic
+Saturn Connector/
