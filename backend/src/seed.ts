@@ -1,24 +1,27 @@
 import "dotenv/config";
-import { migrate, pool } from "./db.js";
+import { migrate, run, setCounter, transaction } from "./db.js";
 
 function at(minutesAgo: number) {
   return new Date(Date.now() - minutesAgo * 60_000).toISOString();
 }
 
-export async function seed() {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query(
-      "TRUNCATE activity, emails, tickets, payments, invoices, subscriptions, customers CASCADE"
-    );
-    await client.query("ALTER SEQUENCE customer_seq RESTART WITH 7");
-    await client.query("ALTER SEQUENCE subscription_seq RESTART WITH 7");
-    await client.query("ALTER SEQUENCE invoice_seq RESTART WITH 10232");
-    await client.query("ALTER SEQUENCE payment_seq RESTART WITH 92832");
-    await client.query("ALTER SEQUENCE ticket_seq RESTART WITH 1004");
-    await client.query("ALTER SEQUENCE email_seq RESTART WITH 1002");
-    await client.query("ALTER SEQUENCE activity_seq RESTART WITH 1007");
+export function seed() {
+  transaction(() => {
+    run("DELETE FROM activity");
+    run("DELETE FROM emails");
+    run("DELETE FROM tickets");
+    run("DELETE FROM payments");
+    run("DELETE FROM invoices");
+    run("DELETE FROM subscriptions");
+    run("DELETE FROM customers");
+
+    setCounter("customer_seq", 6);
+    setCounter("subscription_seq", 6);
+    setCounter("invoice_seq", 10231);
+    setCounter("payment_seq", 92831);
+    setCounter("ticket_seq", 1003);
+    setCounter("email_seq", 1001);
+    setCounter("activity_seq", 1006);
 
     const customers = [
       ["cus_001", "Acme Corporation"],
@@ -30,10 +33,7 @@ export async function seed() {
     ] as const;
 
     for (const [id, name] of customers) {
-      await client.query("INSERT INTO customers (id, name) VALUES ($1, $2)", [
-        id,
-        name,
-      ]);
+      run("INSERT INTO customers (id, name) VALUES (?, ?)", [id, name]);
     }
 
     const subscriptions = [
@@ -46,8 +46,8 @@ export async function seed() {
     ] as const;
 
     for (const [id, customerId, plan, status, mrr] of subscriptions) {
-      await client.query(
-        "INSERT INTO subscriptions (id, customer_id, plan, status, mrr) VALUES ($1, $2, $3, $4, $5)",
+      run(
+        "INSERT INTO subscriptions (id, customer_id, plan, status, mrr) VALUES (?, ?, ?, ?, ?)",
         [id, customerId, plan, status, mrr]
       );
     }
@@ -61,13 +61,21 @@ export async function seed() {
     ] as const;
 
     for (const [id, customerId, amount, status, reason, createdAt, paymentId] of invoices) {
-      await client.query(
-        "INSERT INTO invoices (id, customer_id, amount, status, reason, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+      run(
+        "INSERT INTO invoices (id, customer_id, amount, status, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         [id, customerId, amount, status, reason, createdAt]
       );
-      await client.query(
-        "INSERT INTO payments (id, invoice_id, customer_id, amount, status, reason, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-        [paymentId, id, customerId, amount, status === "failed" ? "failed" : "paid", reason, createdAt]
+      run(
+        "INSERT INTO payments (id, invoice_id, customer_id, amount, status, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+          paymentId,
+          id,
+          customerId,
+          amount,
+          status === "failed" ? "failed" : "paid",
+          reason,
+          createdAt,
+        ]
       );
     }
 
@@ -79,14 +87,14 @@ export async function seed() {
     ] as const;
 
     for (const [id, customerId, subject, status, createdBy, createdAt] of tickets) {
-      await client.query(
-        "INSERT INTO tickets (id, customer_id, subject, status, created_by, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+      run(
+        "INSERT INTO tickets (id, customer_id, subject, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         [id, customerId, subject, status, createdBy, createdAt]
       );
     }
 
-    await client.query(
-      "INSERT INTO emails (id, customer_id, recipient, subject, body, sent_by, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    run(
+      "INSERT INTO emails (id, customer_id, recipient, subject, body, sent_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
       [
         "eml_1001",
         "cus_001",
@@ -108,32 +116,24 @@ export async function seed() {
     ] as const;
 
     for (const [id, atTime, event, customerId] of activity) {
-      await client.query(
-        "INSERT INTO activity (id, at, event, customer_id) VALUES ($1, $2, $3, $4)",
-        [id, atTime, event, customerId]
-      );
+      run("INSERT INTO activity (id, at, event, customer_id) VALUES (?, ?, ?, ?)", [
+        id,
+        atTime,
+        event,
+        customerId,
+      ]);
     }
-
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 const isCli = process.argv[1]?.endsWith("seed.ts");
 if (isCli) {
-  migrate()
-    .then(seed)
-    .then(async () => {
-      console.log("Seeded ACME demo data");
-      await pool.end();
-    })
-    .catch(async (error) => {
-      console.error(error);
-      await pool.end();
-      process.exit(1);
-    });
+  try {
+    migrate();
+    seed();
+    console.log("Seeded ACME demo data");
+  } catch (error) {
+    console.error(error);
+    process.exit(1);
+  }
 }

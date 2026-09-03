@@ -4,6 +4,7 @@ import { type FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { sendJson } from "@/lib/api";
 import type { CustomerView, Plan, SubscriptionStatus } from "@/lib/types";
+import { paths } from "@/lib/paths";
 import {
   Field,
   FormActions,
@@ -42,7 +43,7 @@ export function CustomerForm({ initial }: { initial?: CustomerView }) {
       const saved = initial
         ? await sendJson<CustomerView>(`/api/customers/${initial.id}`, "PATCH", body)
         : await sendJson<CustomerView>("/api/customers", "POST", body);
-      router.push(`/customers/${saved.id}`);
+      router.push(paths.customer(saved.id));
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
@@ -104,7 +105,7 @@ export function CustomerForm({ initial }: { initial?: CustomerView }) {
         <PrimaryButton type="submit" disabled={saving}>
           {saving ? "Saving…" : initial ? "Save changes" : "Create customer"}
         </PrimaryButton>
-        <SecondaryLink href={initial ? `/customers/${initial.id}` : "/customers"}>
+        <SecondaryLink href={initial ? paths.customer(initial.id) : "/customers"}>
           Cancel
         </SecondaryLink>
       </FormActions>

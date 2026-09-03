@@ -6,6 +6,7 @@ import { relativeTime } from "@/lib/format";
 import type { EmailMessage } from "@/lib/types";
 import { PageHeader } from "@/components/ui/page-header";
 import { PrimaryLink } from "@/components/ui/form";
+import { paths } from "@/lib/paths";
 
 export default function EmailsPage() {
   const { data } = useResource<EmailMessage[]>("/api/emails");
@@ -22,7 +23,7 @@ export default function EmailsPage() {
         {emails.map((email) => (
           <Link
             key={email.id}
-            href={`/emails/${email.id}`}
+            href={paths.email(email.id)}
             className="block px-5 py-4 hover:bg-page/80"
           >
             <div className="flex items-start justify-between gap-6">

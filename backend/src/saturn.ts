@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { iso, pool } from "./db.js";
+import { get, now, run } from "./db.js";
 
 export const saturnRouter = Router();
 
@@ -45,15 +45,17 @@ function asTrimmed(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function toPublic(row: {
+type EnrollmentRow = {
   runtime_id: string;
   agent_id: string;
   token: string;
   cloud_ws: string;
-  runtime_connected: boolean;
-  enrolled_at: Date | string;
-  updated_at: Date | string;
-}) {
+  runtime_connected: number;
+  enrolled_at: string;
+  updated_at: string;
+};
+
+function toPublic(row: EnrollmentRow) {
   const base = defaults();
   return {
     enrolled: true,
@@ -61,11 +63,11 @@ function toPublic(row: {
     agentId: row.agent_id,
     tokenTail: tokenTail(row.token),
     cloudWsConfigured: Boolean(row.cloud_ws),
-    runtimeConnected: row.runtime_connected,
+    runtimeConnected: Boolean(row.runtime_connected),
     dashboardUrl: base.dashboardUrl,
     enrollUrl: dashboardEnrollUrl(base.dashboardUrl, row.runtime_id, row.agent_id),
-    enrolledAt: iso(row.enrolled_at),
-    updatedAt: iso(row.updated_at),
+    enrolledAt: row.enrolled_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -85,64 +87,52 @@ function emptyPublic() {
   };
 }
 
-async function findEnrollment(runtimeId: string) {
-  const { rows } = await pool.query(
-    "SELECT * FROM saturn_enrollments WHERE runtime_id = $1",
+function findEnrollment(runtimeId: string) {
+  return get<EnrollmentRow>(
+    "SELECT * FROM saturn_enrollments WHERE runtime_id = ?",
     [runtimeId]
   );
-  return rows[0] as
-    | {
-        runtime_id: string;
-        agent_id: string;
-        token: string;
-        cloud_ws: string;
-        runtime_connected: boolean;
-        enrolled_at: Date | string;
-        updated_at: Date | string;
-      }
-    | undefined;
 }
 
-async function upsertEnrollment(input: {
+function upsertEnrollment(input: {
   runtimeId: string;
   agentId: string;
   token: string;
   cloudWs: string;
 }) {
-  const { rows } = await pool.query(
+  const at = now();
+  run(
     `
     INSERT INTO saturn_enrollments (
       runtime_id, agent_id, token, cloud_ws, runtime_connected, enrolled_at, updated_at
     )
-    VALUES ($1, $2, $3, $4, false, now(), now())
-    ON CONFLICT (runtime_id) DO UPDATE SET
-      agent_id = EXCLUDED.agent_id,
-      token = EXCLUDED.token,
-      cloud_ws = EXCLUDED.cloud_ws,
-      runtime_connected = false,
-      updated_at = now()
-    RETURNING *
+    VALUES (?, ?, ?, ?, 0, ?, ?)
+    ON CONFLICT(runtime_id) DO UPDATE SET
+      agent_id = excluded.agent_id,
+      token = excluded.token,
+      cloud_ws = excluded.cloud_ws,
+      runtime_connected = 0,
+      updated_at = excluded.updated_at
     `,
-    [input.runtimeId, input.agentId, input.token, input.cloudWs]
+    [input.runtimeId, input.agentId, input.token, input.cloudWs, at, at]
   );
-  return rows[0];
+  return findEnrollment(input.runtimeId)!;
 }
 
-saturnRouter.get("/saturn/enrollment", async (req, res) => {
-  const runtimeId =
-    asTrimmed(req.query.runtime_id) ?? defaults().runtimeId;
-  const row = await findEnrollment(runtimeId);
+saturnRouter.get("/saturn/enrollment", (req, res) => {
+  const runtimeId = asTrimmed(req.query.runtime_id) ?? defaults().runtimeId;
+  const row = findEnrollment(runtimeId);
   res.json(row ? toPublic(row) : emptyPublic());
 });
 
-saturnRouter.put("/saturn/enrollment", async (req, res) => {
+saturnRouter.put("/saturn/enrollment", (req, res) => {
   const base = defaults();
   const token = asTrimmed(req.body?.token);
   if (!token) {
     res.status(400).json({ error: "token is required" });
     return;
   }
-  const row = await upsertEnrollment({
+  const row = upsertEnrollment({
     runtimeId: asTrimmed(req.body?.runtimeId) ?? base.runtimeId,
     agentId: asTrimmed(req.body?.agentId) ?? base.agentId,
     token,
@@ -151,21 +141,18 @@ saturnRouter.put("/saturn/enrollment", async (req, res) => {
   res.json(toPublic(row));
 });
 
-saturnRouter.delete("/saturn/enrollment", async (req, res) => {
+saturnRouter.delete("/saturn/enrollment", (req, res) => {
   const runtimeId =
     asTrimmed(req.body?.runtimeId) ??
     asTrimmed(req.query.runtime_id) ??
     defaults().runtimeId;
-  await pool.query("DELETE FROM saturn_enrollments WHERE runtime_id = $1", [
-    runtimeId,
-  ]);
+  run("DELETE FROM saturn_enrollments WHERE runtime_id = ?", [runtimeId]);
   res.json(emptyPublic());
 });
 
-saturnRouter.get("/internal/saturn/credentials", async (req, res) => {
-  const runtimeId =
-    asTrimmed(req.query.runtime_id) ?? defaults().runtimeId;
-  const row = await findEnrollment(runtimeId);
+saturnRouter.get("/internal/saturn/credentials", (req, res) => {
+  const runtimeId = asTrimmed(req.query.runtime_id) ?? defaults().runtimeId;
+  const row = findEnrollment(runtimeId);
   if (!row) {
     res.status(404).json({ error: "Not enrolled" });
     return;
@@ -178,14 +165,14 @@ saturnRouter.get("/internal/saturn/credentials", async (req, res) => {
   });
 });
 
-saturnRouter.put("/internal/saturn/credentials", async (req, res) => {
+saturnRouter.put("/internal/saturn/credentials", (req, res) => {
   const base = defaults();
   const token = asTrimmed(req.body?.token);
   if (!token) {
     res.status(400).json({ error: "token is required" });
     return;
   }
-  const row = await upsertEnrollment({
+  const row = upsertEnrollment({
     runtimeId: asTrimmed(req.body?.runtimeId) ?? base.runtimeId,
     agentId: asTrimmed(req.body?.agentId) ?? base.agentId,
     token,
@@ -199,17 +186,16 @@ saturnRouter.put("/internal/saturn/credentials", async (req, res) => {
   });
 });
 
-saturnRouter.post("/internal/saturn/heartbeat", async (req, res) => {
-  const runtimeId =
-    asTrimmed(req.body?.runtimeId) ?? defaults().runtimeId;
+saturnRouter.post("/internal/saturn/heartbeat", (req, res) => {
+  const runtimeId = asTrimmed(req.body?.runtimeId) ?? defaults().runtimeId;
   const connected = Boolean(req.body?.connected);
-  const { rowCount } = await pool.query(
+  const result = run(
     `
     UPDATE saturn_enrollments
-    SET runtime_connected = $2, updated_at = now()
-    WHERE runtime_id = $1
+    SET runtime_connected = ?, updated_at = ?
+    WHERE runtime_id = ?
     `,
-    [runtimeId, connected]
+    [connected ? 1 : 0, now(), runtimeId]
   );
-  res.json({ ok: true, updated: (rowCount ?? 0) > 0 });
+  res.json({ ok: true, updated: result.changes > 0 });
 });

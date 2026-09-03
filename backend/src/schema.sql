@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   amount INTEGER NOT NULL,
   status TEXT NOT NULL,
   reason TEXT,
-  created_at TIMESTAMPTZ NOT NULL
+  created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS payments (
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS payments (
   amount INTEGER NOT NULL,
   status TEXT NOT NULL,
   reason TEXT,
-  created_at TIMESTAMPTZ NOT NULL
+  created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS tickets (
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   subject TEXT NOT NULL,
   status TEXT NOT NULL,
   created_by TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL
+  created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS emails (
@@ -46,12 +46,12 @@ CREATE TABLE IF NOT EXISTS emails (
   subject TEXT NOT NULL,
   body TEXT NOT NULL,
   sent_by TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL
+  created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS activity (
   id TEXT PRIMARY KEY,
-  at TIMESTAMPTZ NOT NULL,
+  at TEXT NOT NULL,
   event TEXT NOT NULL,
   customer_id TEXT REFERENCES customers(id)
 );
@@ -61,15 +61,12 @@ CREATE TABLE IF NOT EXISTS saturn_enrollments (
   agent_id TEXT NOT NULL,
   token TEXT NOT NULL,
   cloud_ws TEXT NOT NULL DEFAULT '',
-  runtime_connected BOOLEAN NOT NULL DEFAULT FALSE,
-  enrolled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  runtime_connected INTEGER NOT NULL DEFAULT 0,
+  enrolled_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE SEQUENCE IF NOT EXISTS customer_seq START WITH 7;
-CREATE SEQUENCE IF NOT EXISTS subscription_seq START WITH 7;
-CREATE SEQUENCE IF NOT EXISTS invoice_seq START WITH 10232;
-CREATE SEQUENCE IF NOT EXISTS payment_seq START WITH 92832;
-CREATE SEQUENCE IF NOT EXISTS ticket_seq START WITH 1004;
-CREATE SEQUENCE IF NOT EXISTS email_seq START WITH 1002;
-CREATE SEQUENCE IF NOT EXISTS activity_seq START WITH 1007;
+CREATE TABLE IF NOT EXISTS id_counters (
+  name TEXT PRIMARY KEY,
+  value INTEGER NOT NULL
+);

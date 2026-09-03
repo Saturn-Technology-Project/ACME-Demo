@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { sendJson } from "@/lib/api";
 import { useResource } from "@/hooks/use-resource";
 import type { CustomerView, TicketStatus, TicketView } from "@/lib/types";
+import { paths } from "@/lib/paths";
 import {
   Field,
   FormActions,
@@ -35,7 +36,7 @@ export function TicketForm({ initial }: { initial?: TicketView }) {
       const saved = initial
         ? await sendJson<TicketView>(`/api/tickets/${initial.id}`, "PATCH", body)
         : await sendJson<TicketView>("/api/tickets", "POST", body);
-      router.push(`/support/${saved.id}`);
+      router.push(paths.ticket(saved.id));
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
@@ -90,7 +91,7 @@ export function TicketForm({ initial }: { initial?: TicketView }) {
         <PrimaryButton type="submit" disabled={saving || !customerId}>
           {saving ? "Saving…" : initial ? "Save changes" : "Create ticket"}
         </PrimaryButton>
-        <SecondaryLink href={initial ? `/support/${initial.id}` : "/support"}>
+        <SecondaryLink href={initial ? paths.ticket(initial.id) : "/support"}>
           Cancel
         </SecondaryLink>
       </FormActions>

@@ -7,6 +7,7 @@ import type { InvoiceView } from "@/lib/types";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { PrimaryLink } from "@/components/ui/form";
+import { paths } from "@/lib/paths";
 
 export default function BillingPage() {
   const { data } = useResource<InvoiceView[]>("/api/invoices");
@@ -33,7 +34,7 @@ export default function BillingPage() {
             {invoices.map((invoice) => (
               <tr key={invoice.id} className="hover:bg-page/80">
                 <td className="px-5 py-3.5 font-mono">
-                  <Link href={`/billing/${invoice.id}`} className="text-accent hover:underline">
+                  <Link href={paths.invoice(invoice.id)} className="text-accent hover:underline">
                     {invoice.id}
                   </Link>
                 </td>

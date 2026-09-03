@@ -17,6 +17,7 @@ export function useResource<T>(path: string) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!path) return;
     let cancelled = false;
 
     async function load() {

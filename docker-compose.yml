@@ -1,37 +1,20 @@
 name: acme
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: acme
-      POSTGRES_PASSWORD: acme
-      POSTGRES_DB: acme
-    volumes:
-      - acme_pg:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U acme -d acme"]
-      interval: 2s
-      timeout: 5s
-      retries: 20
-
-  backend:
+  demo:
     build:
-      context: ./backend
+      context: .
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://acme:acme@postgres:5432/acme
       PORT: 4000
+      SQLITE_PATH: /app/data/acme.sqlite
+      PUBLIC_DIR: /app/public
+      NODE_OPTIONS: --experimental-sqlite
     ports:
-      - "0.0.0.0:4000:4000"
-    networks:
-      - default
-      - acme-public
-    depends_on:
-      postgres:
-        condition: service_healthy
+      - "3002:4000"
+    volumes:
+      - acme_data:/app/data
     healthcheck:
       test:
         [
@@ -44,24 +27,5 @@ services:
       timeout: 5s
       retries: 20
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        ACME_API_URL: http://backend:4000
-    restart: unless-stopped
-    environment:
-      ACME_API_URL: http://backend:4000
-    ports:
-      - "3002:3000"
-    depends_on:
-      backend:
-        condition: service_healthy
-
 volumes:
-  acme_pg:
-
-networks:
-  acme-public:
-    name: acme-public
+  acme_data:

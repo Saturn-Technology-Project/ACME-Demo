@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { sendJson } from "@/lib/api";
 import { useResource } from "@/hooks/use-resource";
 import type { CustomerView, EmailMessage } from "@/lib/types";
+import { paths } from "@/lib/paths";
 import {
   Field,
   FormActions,
@@ -40,7 +41,7 @@ export function EmailForm({ initial }: { initial?: EmailMessage }) {
       const saved = initial
         ? await sendJson<EmailMessage>(`/api/emails/${initial.id}`, "PATCH", payload)
         : await sendJson<EmailMessage>("/api/emails", "POST", payload);
-      router.push(`/emails/${saved.id}`);
+      router.push(paths.email(saved.id));
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
@@ -96,7 +97,7 @@ export function EmailForm({ initial }: { initial?: EmailMessage }) {
         <PrimaryButton type="submit" disabled={saving}>
           {saving ? "Saving…" : initial ? "Save changes" : "Send email"}
         </PrimaryButton>
-        <SecondaryLink href={initial ? `/emails/${initial.id}` : "/emails"}>
+        <SecondaryLink href={initial ? paths.email(initial.id) : "/emails"}>
           Cancel
         </SecondaryLink>
       </FormActions>

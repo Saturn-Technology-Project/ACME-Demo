@@ -1,23 +1,23 @@
 "use client";
 
-import { use } from "react";
 import Link from "next/link";
 import { useResource } from "@/hooks/use-resource";
+import { useIdParam } from "@/hooks/use-id-param";
 import { money } from "@/lib/format";
+import { paths } from "@/lib/paths";
 import type { InvoiceView } from "@/lib/types";
+import { IdPage } from "@/components/id-page";
 import { Kv, PageHeader, Panel } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { SecondaryLink } from "@/components/ui/form";
 
-export default function InvoiceDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = use(params);
-  const { data: invoice } = useResource<InvoiceView>(`/api/invoices/${id}`);
+function InvoiceDetail() {
+  const id = useIdParam();
+  const { data: invoice } = useResource<InvoiceView>(
+    id ? `/api/invoices/${id}` : ""
+  );
 
-  if (!invoice) {
+  if (!id || !invoice) {
     return <div className="px-8 py-8 text-[13px] text-muted">Loading invoice…</div>;
   }
 
@@ -30,7 +30,9 @@ export default function InvoiceDetailPage({
         <PageHeader
           title={invoice.id}
           description="Invoice"
-          actions={<SecondaryLink href={`/billing/${invoice.id}/edit`}>Edit</SecondaryLink>}
+          actions={
+            <SecondaryLink href={paths.invoiceEdit(invoice.id)}>Edit</SecondaryLink>
+          }
         />
         <div
           className={`mb-6 font-mono text-[22px] font-medium tracking-[0.14em] ${
@@ -48,7 +50,7 @@ export default function InvoiceDetailPage({
         <div className="px-5">
           <Kv label="Customer">
             <Link
-              href={`/customers/${invoice.customerId}`}
+              href={paths.customer(invoice.customerId)}
               className="text-accent hover:underline"
             >
               {invoice.customerName}
@@ -73,5 +75,13 @@ export default function InvoiceDetailPage({
         </div>
       </Panel>
     </div>
+  );
+}
+
+export default function InvoiceDetailPage() {
+  return (
+    <IdPage>
+      <InvoiceDetail />
+    </IdPage>
   );
 }

@@ -45,6 +45,11 @@ backend/node_modules
 backend/dist
 backend/.env
 backend/.DS_Store
+backend/data
+backend/public
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 
 # mcp
 MCP/node_modules

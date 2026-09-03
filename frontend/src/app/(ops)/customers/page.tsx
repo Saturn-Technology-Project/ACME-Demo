@@ -8,6 +8,7 @@ import type { CustomerView } from "@/lib/types";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusDot } from "@/components/ui/status-badge";
 import { PrimaryLink } from "@/components/ui/form";
+import { paths } from "@/lib/paths";
 
 export default function CustomersPage() {
   const { data } = useResource<CustomerView[]>("/api/customers");
@@ -35,7 +36,7 @@ export default function CustomersPage() {
         {customers.map((customer) => (
           <Link
             key={customer.id}
-            href={`/customers/${customer.id}`}
+            href={paths.customer(customer.id)}
             className="flex items-center justify-between gap-6 px-5 py-4 hover:bg-page/80"
           >
             <div>

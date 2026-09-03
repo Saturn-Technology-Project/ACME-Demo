@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { iso, pool } from "./db.js";
+import { all, get, iso, nextId, now, run, transaction } from "./db.js";
 import { seed } from "./seed.js";
 
 export const router = Router();
@@ -11,24 +11,32 @@ const customerSelect = `
     s.plan,
     s.mrr,
     s.status AS subscription_status,
-    p.status AS payment_status,
-    p.amount AS last_payment_amount,
-    p.id AS last_payment_id,
-    p.invoice_id AS last_invoice_id,
     (
-      SELECT COUNT(*)::int
-      FROM tickets t
+      SELECT p.status FROM payments p
+      WHERE p.customer_id = c.id
+      ORDER BY p.created_at DESC LIMIT 1
+    ) AS payment_status,
+    (
+      SELECT p.amount FROM payments p
+      WHERE p.customer_id = c.id
+      ORDER BY p.created_at DESC LIMIT 1
+    ) AS last_payment_amount,
+    (
+      SELECT p.id FROM payments p
+      WHERE p.customer_id = c.id
+      ORDER BY p.created_at DESC LIMIT 1
+    ) AS last_payment_id,
+    (
+      SELECT p.invoice_id FROM payments p
+      WHERE p.customer_id = c.id
+      ORDER BY p.created_at DESC LIMIT 1
+    ) AS last_invoice_id,
+    (
+      SELECT COUNT(*) FROM tickets t
       WHERE t.customer_id = c.id AND t.status = 'open'
     ) AS open_tickets
   FROM customers c
   JOIN subscriptions s ON s.customer_id = c.id
-  LEFT JOIN LATERAL (
-    SELECT id, invoice_id, amount, status
-    FROM payments
-    WHERE customer_id = c.id
-    ORDER BY created_at DESC
-    LIMIT 1
-  ) p ON true
 `;
 
 function asId(value: unknown) {
@@ -122,12 +130,14 @@ type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 type TicketStatus = (typeof TICKET_STATUSES)[number];
 
 const invoiceSelect = `
-  SELECT i.*, c.name AS customer_name, p.id AS payment_id
+  SELECT i.*, c.name AS customer_name,
+    (
+      SELECT p.id FROM payments p
+      WHERE p.invoice_id = i.id
+      ORDER BY p.created_at DESC LIMIT 1
+    ) AS payment_id
   FROM invoices i
   JOIN customers c ON c.id = i.customer_id
-  LEFT JOIN LATERAL (
-    SELECT id FROM payments WHERE invoice_id = i.id ORDER BY created_at DESC LIMIT 1
-  ) p ON true
 `;
 
 const ticketSelect = `
@@ -162,58 +172,54 @@ function paymentStatusForInvoice(status: InvoiceStatus): PaymentStatus {
   return status;
 }
 
-async function nextId(sequence: string, prefix: string, pad = 0) {
-  const { rows } = await pool.query<{ nextval: string }>(
-    `SELECT nextval($1)::text AS nextval`,
-    [sequence]
-  );
-  const value = pad > 0 ? rows[0].nextval.padStart(pad, "0") : rows[0].nextval;
-  return `${prefix}${value}`;
-}
-
-async function findCustomer(id: string) {
-  const { rows } = await pool.query(`${customerSelect} WHERE c.id = $1`, [id]);
-  return rows[0] ? toCustomer(rows[0]) : null;
-}
-
-async function findInvoice(id: string) {
-  const { rows } = await pool.query(`${invoiceSelect} WHERE i.id = $1`, [id]);
-  return rows[0] ? toInvoice(rows[0]) : null;
-}
-
-async function findTicket(id: string) {
-  const { rows } = await pool.query(`${ticketSelect} WHERE t.id = $1`, [id]);
-  return rows[0] ? toTicket(rows[0]) : null;
-}
-
-async function customerExists(id: string) {
-  const { rows } = await pool.query("SELECT name FROM customers WHERE id = $1", [
+function findCustomer(id: string) {
+  const row = get<Record<string, unknown>>(`${customerSelect} WHERE c.id = ?`, [
     id,
   ]);
-  return rows[0] as { name: string } | undefined;
+  return row ? toCustomer(row) : null;
 }
 
-async function pushActivity(event: string, customerId: string | null) {
-  const id = await nextId("activity_seq", "act_");
-  await pool.query(
-    "INSERT INTO activity (id, at, event, customer_id) VALUES ($1, now(), $2, $3)",
-    [id, event, customerId]
-  );
+function findInvoice(id: string) {
+  const row = get<Record<string, unknown>>(`${invoiceSelect} WHERE i.id = ?`, [
+    id,
+  ]);
+  return row ? toInvoice(row) : null;
 }
 
-router.get("/customers", async (req, res) => {
+function findTicket(id: string) {
+  const row = get<Record<string, unknown>>(`${ticketSelect} WHERE t.id = ?`, [
+    id,
+  ]);
+  return row ? toTicket(row) : null;
+}
+
+function customerExists(id: string) {
+  return get<{ name: string }>("SELECT name FROM customers WHERE id = ?", [id]);
+}
+
+function pushActivity(event: string, customerId: string | null) {
+  const id = nextId("activity_seq", "act_");
+  run("INSERT INTO activity (id, at, event, customer_id) VALUES (?, ?, ?, ?)", [
+    id,
+    now(),
+    event,
+    customerId,
+  ]);
+}
+
+router.get("/customers", (req, res) => {
   const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
-  const { rows } = await pool.query(
+  const rows = all<Record<string, unknown>>(
     `${customerSelect}
-     WHERE ($1 = '' OR c.name ILIKE '%' || $1 || '%')
+     WHERE (? = '' OR instr(lower(c.name), lower(?)) > 0)
      ORDER BY c.id`,
-    [q]
+    [q, q]
   );
   res.json(rows.map(toCustomer));
 });
 
-router.get("/customers/:id", async (req, res) => {
-  const customer = await findCustomer(req.params.id);
+router.get("/customers/:id", (req, res) => {
+  const customer = findCustomer(req.params.id);
   if (!customer) {
     res.status(404).json({ error: "Customer not found" });
     return;
@@ -221,7 +227,7 @@ router.get("/customers/:id", async (req, res) => {
   res.json(customer);
 });
 
-router.post("/customers", async (req, res) => {
+router.post("/customers", (req, res) => {
   const name = asTrimmed(req.body?.name);
   const plan = asOneOf(req.body?.plan, PLANS) ?? "Business";
   const subscriptionStatus =
@@ -254,32 +260,22 @@ router.post("/customers", async (req, res) => {
     return;
   }
 
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const id = await nextId("customer_seq", "cus_", 3);
-    const subscriptionId = await nextId("subscription_seq", "sub_", 3);
-    await client.query("INSERT INTO customers (id, name) VALUES ($1, $2)", [
-      id,
-      name,
-    ]);
-    await client.query(
-      "INSERT INTO subscriptions (id, customer_id, plan, status, mrr) VALUES ($1, $2, $3, $4, $5)",
-      [subscriptionId, id, plan, subscriptionStatus, mrr]
+  const id = transaction(() => {
+    const customerId = nextId("customer_seq", "cus_", 3);
+    const subscriptionId = nextId("subscription_seq", "sub_", 3);
+    run("INSERT INTO customers (id, name) VALUES (?, ?)", [customerId, name]);
+    run(
+      "INSERT INTO subscriptions (id, customer_id, plan, status, mrr) VALUES (?, ?, ?, ?, ?)",
+      [subscriptionId, customerId, plan, subscriptionStatus, mrr]
     );
-    await client.query("COMMIT");
-    await pushActivity("Customer created", id);
-    res.status(201).json(await findCustomer(id));
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+    return customerId;
+  });
+  pushActivity("Customer created", id);
+  res.status(201).json(findCustomer(id));
 });
 
-router.patch("/customers/:id", async (req, res) => {
-  const existing = await findCustomer(req.params.id);
+router.patch("/customers/:id", (req, res) => {
+  const existing = findCustomer(req.params.id);
   if (!existing) {
     res.status(404).json({ error: "Customer not found" });
     return;
@@ -320,25 +316,24 @@ router.patch("/customers/:id", async (req, res) => {
     return;
   }
 
-  await pool.query("UPDATE customers SET name = $2 WHERE id = $1", [
-    existing.id,
-    name,
-  ]);
-  await pool.query(
-    "UPDATE subscriptions SET plan = $2, status = $3, mrr = $4 WHERE customer_id = $1",
-    [existing.id, plan, subscriptionStatus, mrr]
+  run("UPDATE customers SET name = ? WHERE id = ?", [name, existing.id]);
+  run(
+    "UPDATE subscriptions SET plan = ?, status = ?, mrr = ? WHERE customer_id = ?",
+    [plan, subscriptionStatus, mrr, existing.id]
   );
-  await pushActivity("Customer updated", existing.id);
-  res.json(await findCustomer(existing.id));
+  pushActivity("Customer updated", existing.id);
+  res.json(findCustomer(existing.id));
 });
 
-router.get("/invoices", async (_req, res) => {
-  const { rows } = await pool.query(`${invoiceSelect} ORDER BY i.created_at DESC`);
+router.get("/invoices", (_req, res) => {
+  const rows = all<Record<string, unknown>>(
+    `${invoiceSelect} ORDER BY i.created_at DESC`
+  );
   res.json(rows.map(toInvoice));
 });
 
-router.get("/invoices/:id", async (req, res) => {
-  const invoice = await findInvoice(req.params.id);
+router.get("/invoices/:id", (req, res) => {
+  const invoice = findInvoice(req.params.id);
   if (!invoice) {
     res.status(404).json({ error: "Invoice not found" });
     return;
@@ -346,7 +341,7 @@ router.get("/invoices/:id", async (req, res) => {
   res.json(invoice);
 });
 
-router.post("/invoices", async (req, res) => {
+router.post("/invoices", (req, res) => {
   const customerId = asTrimmed(req.body?.customerId);
   const amount = asInt(req.body?.amount);
   const status = asOneOf(req.body?.status, INVOICE_STATUSES) ?? "open";
@@ -366,43 +361,45 @@ router.post("/invoices", async (req, res) => {
     });
     return;
   }
-  if (!(await customerExists(customerId))) {
+  if (!customerExists(customerId)) {
     res.status(404).json({ error: "Customer not found" });
     return;
   }
 
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const id = await nextId("invoice_seq", "INV-");
-    const paymentId = await nextId("payment_seq", "TX-");
-    await client.query(
+  const id = transaction(() => {
+    const invoiceId = nextId("invoice_seq", "INV-");
+    const paymentId = nextId("payment_seq", "TX-");
+    const createdAt = now();
+    run(
       `
       INSERT INTO invoices (id, customer_id, amount, status, reason, created_at)
-      VALUES ($1, $2, $3, $4, $5, now())
+      VALUES (?, ?, ?, ?, ?, ?)
       `,
-      [id, customerId, amount, status, reason]
+      [invoiceId, customerId, amount, status, reason, createdAt]
     );
-    await client.query(
+    run(
       `
       INSERT INTO payments (id, invoice_id, customer_id, amount, status, reason, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, now())
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
-      [paymentId, id, customerId, amount, paymentStatusForInvoice(status), reason]
+      [
+        paymentId,
+        invoiceId,
+        customerId,
+        amount,
+        paymentStatusForInvoice(status),
+        reason,
+        createdAt,
+      ]
     );
-    await client.query("COMMIT");
-    await pushActivity("Invoice created", customerId);
-    res.status(201).json(await findInvoice(id));
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+    return invoiceId;
+  });
+  pushActivity("Invoice created", customerId);
+  res.status(201).json(findInvoice(id));
 });
 
-router.patch("/invoices/:id", async (req, res) => {
-  const existing = await findInvoice(req.params.id);
+router.patch("/invoices/:id", (req, res) => {
+  const existing = findInvoice(req.params.id);
   if (!existing) {
     res.status(404).json({ error: "Invoice not found" });
     return;
@@ -434,90 +431,78 @@ router.patch("/invoices/:id", async (req, res) => {
     return;
   }
 
-  await pool.query(
-    "UPDATE invoices SET amount = $2, status = $3, reason = $4 WHERE id = $1",
-    [existing.id, amount, status, reason]
-  );
-  await pool.query(
+  run("UPDATE invoices SET amount = ?, status = ?, reason = ? WHERE id = ?", [
+    amount,
+    status,
+    reason,
+    existing.id,
+  ]);
+  run(
     `
     UPDATE payments
-    SET amount = $2, status = $3, reason = $4
-    WHERE invoice_id = $1
+    SET amount = ?, status = ?, reason = ?
+    WHERE invoice_id = ?
     `,
-    [existing.id, amount, paymentStatusForInvoice(status), reason]
+    [amount, paymentStatusForInvoice(status), reason, existing.id]
   );
-  await pushActivity("Invoice updated", existing.customerId);
-  res.json(await findInvoice(existing.id));
+  pushActivity("Invoice updated", existing.customerId);
+  res.json(findInvoice(existing.id));
 });
 
-router.get("/payments/:id", async (req, res) => {
-  const { rows } = await pool.query("SELECT * FROM payments WHERE id = $1", [
+router.get("/payments/:id", (req, res) => {
+  const row = get<Record<string, unknown>>("SELECT * FROM payments WHERE id = ?", [
     req.params.id,
   ]);
-  if (!rows[0]) {
+  if (!row) {
     res.status(404).json({ error: "Payment not found" });
     return;
   }
-  res.json(toPayment(rows[0]));
+  res.json(toPayment(row));
 });
 
-router.post("/payments/:id/refund", async (req, res) => {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const { rows } = await client.query("SELECT * FROM payments WHERE id = $1 FOR UPDATE", [
-      req.params.id,
-    ]);
-    const payment = rows[0];
-    if (!payment) {
-      await client.query("ROLLBACK");
-      res.status(404).json({ error: "Payment not found" });
-      return;
-    }
-    if (payment.status !== "refunded") {
-      await client.query("UPDATE payments SET status = 'refunded' WHERE id = $1", [
-        payment.id,
+router.post("/payments/:id/refund", (req, res) => {
+  const payment = transaction(() => {
+    const row = get<Record<string, unknown>>(
+      "SELECT * FROM payments WHERE id = ?",
+      [req.params.id]
+    );
+    if (!row) return null;
+    if (row.status !== "refunded") {
+      run("UPDATE payments SET status = 'refunded' WHERE id = ?", [row.id]);
+      run("UPDATE invoices SET status = 'refunded' WHERE id = ?", [
+        row.invoice_id,
       ]);
-      await client.query("UPDATE invoices SET status = 'refunded' WHERE id = $1", [
-        payment.invoice_id,
-      ]);
-      const requestedId = (
-        await client.query<{ nextval: string }>(
-          "SELECT nextval('activity_seq')::text AS nextval"
-        )
-      ).rows[0].nextval;
-      const completedId = (
-        await client.query<{ nextval: string }>(
-          "SELECT nextval('activity_seq')::text AS nextval"
-        )
-      ).rows[0].nextval;
-      await client.query(
-        "INSERT INTO activity (id, at, event, customer_id) VALUES ($1, now(), $2, $3)",
-        [`act_${requestedId}`, "Refund requested", payment.customer_id]
+      const requestedId = nextId("activity_seq", "act_");
+      const completedId = nextId("activity_seq", "act_");
+      const at = now();
+      run(
+        "INSERT INTO activity (id, at, event, customer_id) VALUES (?, ?, ?, ?)",
+        [requestedId, at, "Refund requested", row.customer_id]
       );
-      await client.query(
-        "INSERT INTO activity (id, at, event, customer_id) VALUES ($1, now(), $2, $3)",
-        [`act_${completedId}`, "Refund completed", payment.customer_id]
+      run(
+        "INSERT INTO activity (id, at, event, customer_id) VALUES (?, ?, ?, ?)",
+        [completedId, at, "Refund completed", row.customer_id]
       );
-      payment.status = "refunded";
+      row.status = "refunded";
     }
-    await client.query("COMMIT");
-    res.json(toPayment(payment));
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
+    return row;
+  });
+  if (!payment) {
+    res.status(404).json({ error: "Payment not found" });
+    return;
   }
+  res.json(toPayment(payment));
 });
 
-router.get("/tickets", async (_req, res) => {
-  const { rows } = await pool.query(`${ticketSelect} ORDER BY t.created_at DESC`);
+router.get("/tickets", (_req, res) => {
+  const rows = all<Record<string, unknown>>(
+    `${ticketSelect} ORDER BY t.created_at DESC`
+  );
   res.json(rows.map(toTicket));
 });
 
-router.get("/tickets/:id", async (req, res) => {
-  const ticket = await findTicket(req.params.id);
+router.get("/tickets/:id", (req, res) => {
+  const ticket = findTicket(req.params.id);
   if (!ticket) {
     res.status(404).json({ error: "Ticket not found" });
     return;
@@ -525,7 +510,7 @@ router.get("/tickets/:id", async (req, res) => {
   res.json(ticket);
 });
 
-router.post("/tickets", async (req, res) => {
+router.post("/tickets", (req, res) => {
   const customerId = asTrimmed(req.body?.customerId);
   const subject = asTrimmed(req.body?.subject);
   const createdBy =
@@ -542,25 +527,25 @@ router.post("/tickets", async (req, res) => {
     });
     return;
   }
-  if (!(await customerExists(customerId))) {
+  if (!customerExists(customerId)) {
     res.status(404).json({ error: "Customer not found" });
     return;
   }
 
-  const id = await nextId("ticket_seq", "T-");
-  await pool.query(
+  const id = nextId("ticket_seq", "T-");
+  run(
     `
     INSERT INTO tickets (id, customer_id, subject, status, created_by, created_at)
-    VALUES ($1, $2, $3, $4, $5, now())
+    VALUES (?, ?, ?, ?, ?, ?)
     `,
-    [id, customerId, subject, status, createdBy]
+    [id, customerId, subject, status, createdBy, now()]
   );
-  await pushActivity("Ticket created", customerId);
-  res.status(201).json(await findTicket(id));
+  pushActivity("Ticket created", customerId);
+  res.status(201).json(findTicket(id));
 });
 
-router.patch("/tickets/:id", async (req, res) => {
-  const existing = await findTicket(req.params.id);
+router.patch("/tickets/:id", (req, res) => {
+  const existing = findTicket(req.params.id);
   if (!existing) {
     res.status(404).json({ error: "Ticket not found" });
     return;
@@ -586,34 +571,34 @@ router.patch("/tickets/:id", async (req, res) => {
     return;
   }
 
-  await pool.query("UPDATE tickets SET subject = $2, status = $3 WHERE id = $1", [
-    existing.id,
+  run("UPDATE tickets SET subject = ?, status = ? WHERE id = ?", [
     subject,
     status,
+    existing.id,
   ]);
-  await pushActivity("Ticket updated", existing.customerId);
-  res.json(await findTicket(existing.id));
+  pushActivity("Ticket updated", existing.customerId);
+  res.json(findTicket(existing.id));
 });
 
-router.get("/emails", async (_req, res) => {
-  const { rows } = await pool.query(
+router.get("/emails", (_req, res) => {
+  const rows = all<Record<string, unknown>>(
     "SELECT * FROM emails ORDER BY created_at DESC"
   );
   res.json(rows.map(toEmail));
 });
 
-router.get("/emails/:id", async (req, res) => {
-  const { rows } = await pool.query("SELECT * FROM emails WHERE id = $1", [
+router.get("/emails/:id", (req, res) => {
+  const row = get<Record<string, unknown>>("SELECT * FROM emails WHERE id = ?", [
     req.params.id,
   ]);
-  if (!rows[0]) {
+  if (!row) {
     res.status(404).json({ error: "Email not found" });
     return;
   }
-  res.json(toEmail(rows[0]));
+  res.json(toEmail(row));
 });
 
-router.post("/emails", async (req, res) => {
+router.post("/emails", (req, res) => {
   const to = asTrimmed(req.body?.to);
   const subject = asTrimmed(req.body?.subject);
   const body = asTrimmed(req.body?.body);
@@ -624,34 +609,36 @@ router.post("/emails", async (req, res) => {
     res.status(400).json({ error: "to, subject, and body are required" });
     return;
   }
-  if (customerId && !(await customerExists(customerId))) {
+  if (customerId && !customerExists(customerId)) {
     res.status(404).json({ error: "Customer not found" });
     return;
   }
 
-  const id = await nextId("email_seq", "eml_");
-  const { rows } = await pool.query(
+  const id = nextId("email_seq", "eml_");
+  run(
     `
     INSERT INTO emails (id, customer_id, recipient, subject, body, sent_by, created_at)
-    VALUES ($1, $2, $3, $4, $5, $6, now())
-    RETURNING *
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     `,
-    [id, customerId, to, subject, body, sentBy]
+    [id, customerId, to, subject, body, sentBy, now()]
   );
-  await pushActivity("Email sent", customerId);
-  res.status(201).json(toEmail(rows[0]));
+  const row = get<Record<string, unknown>>("SELECT * FROM emails WHERE id = ?", [
+    id,
+  ]);
+  pushActivity("Email sent", customerId);
+  res.status(201).json(toEmail(row!));
 });
 
-router.patch("/emails/:id", async (req, res) => {
-  const { rows } = await pool.query("SELECT * FROM emails WHERE id = $1", [
-    req.params.id,
-  ]);
-  if (!rows[0]) {
+router.patch("/emails/:id", (req, res) => {
+  const existing = get<Record<string, unknown>>(
+    "SELECT * FROM emails WHERE id = ?",
+    [req.params.id]
+  );
+  if (!existing) {
     res.status(404).json({ error: "Email not found" });
     return;
   }
 
-  const existing = rows[0];
   const to =
     req.body?.to === undefined ? existing.recipient : asTrimmed(req.body.to);
   const subject =
@@ -666,20 +653,20 @@ router.patch("/emails/:id", async (req, res) => {
     return;
   }
 
-  const updated = await pool.query(
-    `
-    UPDATE emails
-    SET recipient = $2, subject = $3, body = $4
-    WHERE id = $1
-    RETURNING *
-    `,
-    [existing.id, to, subject, body]
-  );
-  res.json(toEmail(updated.rows[0]));
+  run("UPDATE emails SET recipient = ?, subject = ?, body = ? WHERE id = ?", [
+    to,
+    subject,
+    body,
+    existing.id,
+  ]);
+  const row = get<Record<string, unknown>>("SELECT * FROM emails WHERE id = ?", [
+    existing.id,
+  ]);
+  res.json(toEmail(row!));
 });
 
-router.get("/activity", async (_req, res) => {
-  const { rows } = await pool.query(`
+router.get("/activity", (_req, res) => {
+  const rows = all<Record<string, unknown>>(`
     SELECT a.*, c.name AS customer_name
     FROM activity a
     LEFT JOIN customers c ON c.id = a.customer_id
@@ -688,7 +675,7 @@ router.get("/activity", async (_req, res) => {
   res.json(rows.map(toActivity));
 });
 
-router.post("/demo/reset", async (_req, res) => {
-  await seed();
+router.post("/demo/reset", (_req, res) => {
+  seed();
   res.json({ ok: true });
 });

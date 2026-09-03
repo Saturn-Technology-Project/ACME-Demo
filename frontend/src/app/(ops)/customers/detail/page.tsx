@@ -1,23 +1,23 @@
 "use client";
 
-import { use } from "react";
 import Link from "next/link";
 import { useResource } from "@/hooks/use-resource";
+import { useIdParam } from "@/hooks/use-id-param";
 import { money } from "@/lib/format";
+import { paths } from "@/lib/paths";
 import type { CustomerView } from "@/lib/types";
+import { IdPage } from "@/components/id-page";
 import { Kv, PageHeader, Panel } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { SecondaryLink } from "@/components/ui/form";
 
-export default function CustomerDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = use(params);
-  const { data: customer } = useResource<CustomerView>(`/api/customers/${id}`);
+function CustomerDetail() {
+  const id = useIdParam();
+  const { data: customer } = useResource<CustomerView>(
+    id ? `/api/customers/${id}` : ""
+  );
 
-  if (!customer) {
+  if (!id || !customer) {
     return <div className="px-8 py-8 text-[13px] text-muted">Loading customer…</div>;
   }
 
@@ -30,7 +30,9 @@ export default function CustomerDetailPage({
         <PageHeader
           title={customer.name}
           description="Customer"
-          actions={<SecondaryLink href={`/customers/${customer.id}/edit`}>Edit</SecondaryLink>}
+          actions={
+            <SecondaryLink href={paths.customerEdit(customer.id)}>Edit</SecondaryLink>
+          }
         />
       </div>
       <Panel>
@@ -58,7 +60,7 @@ export default function CustomerDetailPage({
         <p className="mt-4 text-[13px] text-muted">
           Latest invoice{" "}
           <Link
-            href={`/billing/${customer.lastInvoiceId}`}
+            href={paths.invoice(customer.lastInvoiceId)}
             className="text-accent hover:underline"
           >
             {customer.lastInvoiceId}
@@ -66,5 +68,13 @@ export default function CustomerDetailPage({
         </p>
       ) : null}
     </div>
+  );
+}
+
+export default function CustomerDetailPage() {
+  return (
+    <IdPage>
+      <CustomerDetail />
+    </IdPage>
   );
 }

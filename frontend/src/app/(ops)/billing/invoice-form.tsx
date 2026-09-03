@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { sendJson } from "@/lib/api";
 import { useResource } from "@/hooks/use-resource";
 import type { CustomerView, InvoiceStatus, InvoiceView } from "@/lib/types";
+import { paths } from "@/lib/paths";
 import {
   Field,
   FormActions,
@@ -41,7 +42,7 @@ export function InvoiceForm({ initial }: { initial?: InvoiceView }) {
       const saved = initial
         ? await sendJson<InvoiceView>(`/api/invoices/${initial.id}`, "PATCH", body)
         : await sendJson<InvoiceView>("/api/invoices", "POST", body);
-      router.push(`/billing/${saved.id}`);
+      router.push(paths.invoice(saved.id));
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
@@ -107,7 +108,7 @@ export function InvoiceForm({ initial }: { initial?: InvoiceView }) {
         <PrimaryButton type="submit" disabled={saving || !customerId}>
           {saving ? "Saving…" : initial ? "Save changes" : "Create invoice"}
         </PrimaryButton>
-        <SecondaryLink href={initial ? `/billing/${initial.id}` : "/billing"}>
+        <SecondaryLink href={initial ? paths.invoice(initial.id) : "/billing"}>
           Cancel
         </SecondaryLink>
       </FormActions>

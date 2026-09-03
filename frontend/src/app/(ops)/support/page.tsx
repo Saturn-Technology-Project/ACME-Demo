@@ -6,6 +6,7 @@ import type { TicketView } from "@/lib/types";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { PrimaryLink } from "@/components/ui/form";
+import { paths } from "@/lib/paths";
 
 export default function SupportPage() {
   const { data } = useResource<TicketView[]>("/api/tickets");
@@ -31,7 +32,7 @@ export default function SupportPage() {
             {tickets.map((ticket) => (
               <tr key={ticket.id} className="hover:bg-page/80">
                 <td className="px-5 py-3.5 font-mono">
-                  <Link href={`/support/${ticket.id}`} className="text-accent hover:underline">
+                  <Link href={paths.ticket(ticket.id)} className="text-accent hover:underline">
                     {ticket.id}
                   </Link>
                 </td>

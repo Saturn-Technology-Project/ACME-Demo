@@ -1,22 +1,22 @@
 "use client";
 
-import { use } from "react";
 import Link from "next/link";
 import { useResource } from "@/hooks/use-resource";
+import { useIdParam } from "@/hooks/use-id-param";
 import { relativeTime } from "@/lib/format";
+import { paths } from "@/lib/paths";
 import type { EmailMessage } from "@/lib/types";
+import { IdPage } from "@/components/id-page";
 import { Kv, PageHeader, Panel } from "@/components/ui/page-header";
 import { SecondaryLink } from "@/components/ui/form";
 
-export default function EmailDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = use(params);
-  const { data: email } = useResource<EmailMessage>(`/api/emails/${id}`);
+function EmailDetail() {
+  const id = useIdParam();
+  const { data: email } = useResource<EmailMessage>(
+    id ? `/api/emails/${id}` : ""
+  );
 
-  if (!email) {
+  if (!id || !email) {
     return <div className="px-8 py-8 text-[13px] text-muted">Loading email…</div>;
   }
 
@@ -28,7 +28,7 @@ export default function EmailDetailPage({
       <div className="mt-3">
         <PageHeader
           title={email.subject}
-          actions={<SecondaryLink href={`/emails/${email.id}/edit`}>Edit</SecondaryLink>}
+          actions={<SecondaryLink href={paths.emailEdit(email.id)}>Edit</SecondaryLink>}
         />
       </div>
       <Panel>
@@ -42,5 +42,13 @@ export default function EmailDetailPage({
         </div>
       </Panel>
     </div>
+  );
+}
+
+export default function EmailDetailPage() {
+  return (
+    <IdPage>
+      <EmailDetail />
+    </IdPage>
   );
 }
