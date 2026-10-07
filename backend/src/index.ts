@@ -4,18 +4,27 @@ import { join } from "node:path";
 import cors from "cors";
 import express from "express";
 import { get, migrate } from "./db.js";
+import { callDemoApi, handleMcp } from "./mcp.js";
 import { router } from "./routes.js";
 import { saturnRouter } from "./saturn.js";
 import { seed } from "./seed.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 4000);
+const apiOrigin = `http://127.0.0.1:${port}`;
 const publicDir = process.env.PUBLIC_DIR ?? join(process.cwd(), "public");
 
 app.use(cors());
 app.use(express.json());
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
+});
+app.post("/mcp", async (req, res, next) => {
+  try {
+    res.json(await handleMcp(req.body, (method, path, body, query) => callDemoApi(apiOrigin, method, path, body, query)));
+  } catch (error) {
+    next(error);
+  }
 });
 app.use("/api", router);
 app.use("/api", saturnRouter);
